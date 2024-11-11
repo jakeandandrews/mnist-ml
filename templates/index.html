@@ -1,0 +1,254 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ML guess the digit</title>
+    <style>
+      /* Scale the canvas for better visibility */
+      #container{
+        display: flex;
+        justify-content: center; /* Center horizontally */
+        align-items: center;
+        flex-direction: column;
+        margin-top: 2em;
+      }
+      #predictions{
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 1em;
+      }
+      #canvas {
+        margin: auto;
+        border: 1px solid black;
+        width: 280px; /* Display size (10x larger) */
+        height: 280px; /* Display size (10x larger) */
+        image-rendering: pixelated; /* Optional: enhances pixelated look */
+      }
+      #loading-bar {
+            background-color: #f3f3f3;
+            border: 1px solid #000000;
+            height: 30px;
+        }
+      #progress {
+          height: 100%;
+          width: 100%;
+      }
+      #canvas-container {
+          display: none; 
+          justify-content: center;
+          align-items: center;
+      }
+      #loading-deets {
+          display: flex; 
+          gap: 2em;
+          justify-content: center;
+          align-items: center;
+      }
+      #loading-container {
+          width: 50%;
+      }
+    </style>
+  </head>
+  <body>
+      <div id="container">    
+        <h1>ML guess the digit</h1>
+        <!-- training progress -->
+         <div id="loading-container">
+          <div id="loading-bar">
+            <canvas id="progress"></canvas> <!--TODO: change back to div if dont work-->
+          </div>
+          <div id="loading-deets">
+            <p id="current-iteration">Current Iteration: <b>0</b></p> 
+            <p id="current-accuracy">Current Accuracy: <b>0.00</b>%</p>
+          </div>
+         </div>
+
+        <!-- canvas -->
+        <div id="canvas-container">
+          <canvas id="canvas" width="28" height="28"></canvas>
+          <div id="predictions">
+            <p> Prediction: {{prediction_result}} </p>
+            <button onClick="getCanvas()" id="submit" width="14" height="5">Submit</button>
+            <button onClick="clearCanvas()" id="clear" width="14" height="5">Clear</button>
+            <button onClick="loadMNIST()" id="autofill" width="14" height="5">Autofill</button>
+          </div>
+          <div id="thicc-controls">
+            <label for="line-thickness">Line Thickness:</label>
+            <input type="range" id="line-thickness" min="1" max="10" value="1" />
+            <input type="number" id="line-thickness-input" min="1" max="10" value="1" />
+          </div>
+          <div id="opacity-coontrols">
+            <label for="opacity-slider">Opacity:</label>
+            <input type="range" id="opacity-slider" min="1" max="10" value="5" />
+            <input type="number" id="opacity-input" min="1" max="10" value="5" />
+          </div>
+        </div>
+      </div>
+    </body>
+    <script>
+      const TOTAL_ITERATIONS = {{ total_iterations }};
+      const canvas = document.getElementById("canvas")
+      const ctx = canvas.getContext("2d")
+
+      let drawing = false
+
+      let opacity = 5; //configurable with controls on page
+
+      let lineThickness = 1; //configurable with controls on page
+
+      // Update input field of opacity when slider changes
+      document.getElementById("opacity-slider").addEventListener("input", (event) => {
+        opacity = event.target.value; 
+        document.getElementById("opacity-input").value = opacity; 
+      });
+
+      // Update slider for opacity when input box changes
+      document.getElementById("opacity-input").addEventListener("input", (event) => {
+        opacity = event.target.value; 
+        document.getElementById("opacity-slider").value = opacity; 
+      });
+
+      // Update input field of thickness when slider changes
+      document.getElementById("line-thickness").addEventListener("input", (event) => {
+        lineThickness = event.target.value; 
+        document.getElementById("line-thickness-input").value = lineThickness; 
+      });
+
+      // Update slider of thickness when input box changes
+      document.getElementById("line-thickness-input").addEventListener("input", (event) => {
+        lineThickness = event.target.value; 
+        document.getElementById("line-thickness").value = lineThickness; 
+      });
+
+      canvas.addEventListener("mousedown", () => {
+        drawing = true
+      })
+
+      canvas.addEventListener("mouseup", () => {
+        drawing = false
+        ctx.beginPath() // Start a new path to avoid connecting lines
+      })
+      canvas.addEventListener("mousemove", (event) => {
+        if (!drawing) return
+
+        // Calculate the position in the 28x28 grid
+        const rect = canvas.getBoundingClientRect()
+        const scaleX = canvas.width / rect.width
+        const scaleY = canvas.height / rect.height
+        const x = (event.clientX - rect.left) * scaleX
+        const y = (event.clientY - rect.top) * scaleY
+
+        const normalizedOpacity = opacity / 10; // Since opacity is set as 1-10, make this %
+        ctx.fillStyle = `rgba(0, 0, 0, ${normalizedOpacity})`; // use opacity as alpha
+
+        ctx.fillRect(x, y, lineThickness, lineThickness) // Draw a pixel (1x1 size)
+      })
+
+      const getCanvas = async () => {
+        let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+        let pixelData = imageData.data
+
+        pixels = []
+
+        for (let i = 0; i < pixelData.length; i += 4) {
+            const a = pixelData[i + 3];
+            pixels.push(a); 
+        }
+        const response = await fetch('/predict', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ pixels: pixels }) // Send the pixel data as JSON
+        });
+
+        const data = await response.json(); 
+
+        document.querySelector('#predictions p').innerHTML = `Prediction: ${data.prediction}  `;
+        // document.querySelector('#likelihoods').innerHTML = `Likelihoods: ${data.likelihoods}`;
+      }
+      const clearCanvas = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear the canvas
+            ctx.beginPath(); // Reset the drawing path
+            document.querySelector('#predictions p').innerHTML = `Prediction: ??`;
+      };
+      const loadMNIST = async () => {
+        clearCanvas()
+        pixels = await getMNISTPixels()
+        for (let i = 0; i < pixels.length; i++) {
+            const x = i % 28; 
+            const y = Math.floor(i / 28); //determines row that pixel will be in
+            const alphaValue = pixels[i]; 
+
+            ctx.fillStyle = `rgba(0, 0, 0, ${alphaValue})`;
+            ctx.fillRect(x, y, 1, 1); //one pixel is drawn
+          };
+      }
+      const getMNISTPixels = async() => {
+        const response = await fetch('/get-mnist', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+        });
+
+        const data = await response.json(); 
+        return data
+      }
+
+      const checkProgress = async () => {
+          const response = await fetch('/get-progress');
+          const data = await response.json();
+          const iteration = data.iteration;
+          const accuracy = data.accuracy;
+
+          drawLoadingNumbers(iteration);
+
+          document.getElementById('progress').style.width = `${(iteration / TOTAL_ITERATIONS) * 100}%`; // Update progress bar
+
+          drawLoadingNumbers(iteration);
+          document.querySelector('#current-iteration b').innerText = iteration;
+          document.querySelector('#current-accuracy b').innerText = (accuracy * 100).toFixed(2) ;
+
+          if (iteration < TOTAL_ITERATIONS) {
+              setTimeout(checkProgress, 100); // Check progress again after 100ms
+          } else {
+              // Training completed, show canvas and controls
+              document.getElementById('loading-bar').style.display = 'none'; 
+              document.getElementById('canvas-container').style.display = 'block'; 
+              console.log("Training completed!");
+          }
+      };
+      const drawLoadingNumbers = (iteration) => {
+
+            const numberCount = Math.floor((iteration / TOTAL_ITERATIONS) * 100); // Number of random numbers to draw
+
+            const progressBar = document.getElementById('progress');
+            const ctxLoading = progressBar.getContext('2d');
+
+            ctxLoading.clearRect(0, 0, progressBar.width, progressBar.height);
+            const fontSize = Math.floor(progressBar.height * 0.08);
+
+            for (let i = 0; i < numberCount; i++) {
+                const x = Math.random() * progressBar.width; // Random x position
+                const y = Math.random() * progressBar.height; // Random y position
+                const angle = Math.random() * (Math.PI * 2); // Random angle for rotation
+
+                ctxLoading.save(); 
+                ctxLoading.translate(x, y); 
+                ctxLoading.rotate(angle); 
+                ctxLoading.fillStyle = 'black'; 
+                ctxLoading.font = `${fontSize}px Arial`; 
+                ctxLoading.fillText(Math.floor(Math.random() * 100), 0, 0); 
+                ctxLoading.restore(); 
+            }
+        };
+
+      // Start checking progress immediately after the page loads
+      checkProgress();
+    </script>
+  </body>
+</html>
